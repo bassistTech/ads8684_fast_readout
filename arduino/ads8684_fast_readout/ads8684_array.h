@@ -1,0 +1,113 @@
+/*
+This is code for reading ADAS8684 ADC chip at sampling rates up to the rated
+maximum of 500 kHz, on a Teensy 4 microcontroller board. It's based on the ADS8688 code 
+at this site:
+
+  https://github.com/siteswapjuggler/ADS8688a
+
+You need to install this library.
+
+A word about the SPI clock. The datasheet for the ADS8684 says the maximum clock speed is 17 MHz, and
+the maximum sampling rate is 500 kHz. Each reading requires a 32 bit data transfer, so the SPI transaction
+takes 1882 ns. There seems to be about a 120 ns delay between loading data into the SPI transmit FIFO
+and when the bus transaction begins, leaving not enough time to get everything done before 2000 ns later
+when the next reading starts.
+
+I've also measured the SPI clock frequency on a scope, and have decided that one of two practical
+compromises is possible: 1) Limit the sampling rate to about 450 kHz, still quite useful. 2) Increase
+the SPI clock speed to 19 MHz, which seems pretty darn close to an actual rate of 17 MHz on my scope.
+
+*/
+
+#ifndef ARDUINO_TEENSY40
+#warning This code is only known to work on Teensy 4.0
+#endif
+
+#include <ADS8688.h>
+#define RST_PIN 9 // reset pin
+#define CS_PIN 10 // chip select pin
+#define NUM_CHANS 4 // number of channels (using ADS8684 here)
+#define SCOPE_PIN 6 // used for program timing using a scope
+#define SPI_CLOCK 18000000 // needed to run a bit higher than 17 MHz
+#define SPI_REGS IMXRT_LPSPI4_S // Teensy 4 SPI register block
+
+ADS8688 bank = ADS8688(CS_PIN);
+IntervalTimer adcTimer;
+
+#define maxpts 32768 // max data points during "read" operation
+
+// ISR is a state machine. These are the states:
+
+typedef enum {adcIdle, // typically used for Done with running
+              adcStart, // start, ignore the first few readings
+              adcRun, // running, collecting the data array
+              adcDone}
+      adcStates;
+
+struct {
+  volatile adcStates adcState = adcIdle; // machine state within ISR
+  volatile int npts = 0; // number of data points collected
+  volatile int lastpt = 0; // last point to collect
+  volatile unsigned short adcData[maxpts]; // data buffer for ADC results
+  volatile double adcSum = 0; // sum for computing average
+  volatile double adcSum2 = 0; // sum of squares for computing standard deviation
+} adsGlobals;
+
+void adcISR(){
+  // Interrupt service routine for fast ADC data collection
+  
+  // First, manage the actual ADC reading
+  
+  //digitalWriteFast(SCOPE_PIN, HIGH); // used for monitoring conversion timing on a scope
+  digitalWriteFast(CS_PIN, HIGH); // end previous conversion
+  int result = SPI_REGS.RDR;
+  if (!((adsGlobals.adcState == adcIdle) || ((adsGlobals.adcState == adcDone)))){
+    digitalWriteFast(CS_PIN, LOW); // start next conversion
+    SPI_REGS.TDR = 0; // this is a NO_OP command
+  }
+  //digitalWrite(SCOPE_PIN, LOW);
+  
+  // The SPI hardware is now performing the conversion and storing the result. Meanwhile,
+  // we can take care of the state machine
+  
+  if (adsGlobals.adcState == adcStart) { // Throwing away the first 10 readings
+    adsGlobals.npts++;
+    if (adsGlobals.npts > 10) {
+      adsGlobals.npts = 0;
+      adsGlobals.adcState = adcRun;
+    }
+  }
+  else if (adsGlobals.adcState == adcRun) { // Filling the data array with readings
+    adsGlobals.adcData[adsGlobals.npts] = result;
+    adsGlobals.adcSum += result;
+    adsGlobals.adcSum2 += result*result;
+    adsGlobals.npts++;
+    if (adsGlobals.npts >= adsGlobals.lastpt) {
+      adsGlobals.adcState = adcDone;
+    }
+  }
+  else if (adsGlobals.adcState == adcDone) {
+    adsGlobals.adcState = adcIdle;
+  }
+}
+
+void readArray(int len, float fs){
+  // 
+  SPI.beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE1));
+  SPI_REGS.TCR = (SPI_REGS.TCR & 0xfffff000) | LPSPI_TCR_FRAMESZ(31);
+  adsGlobals.npts = 0;
+  adsGlobals.lastpt = len;
+  adsGlobals.adcSum = 0;
+  adsGlobals.adcSum2 = 0;
+  adsGlobals.adcState = adcIdle;
+  adcTimer.begin(adcISR, 1e6/fs);
+  adcTimer.priority(0);
+  adsGlobals.adcState = adcStart;
+  while (adsGlobals.adcState != adcIdle);
+  adcTimer.end();
+  SPI.endTransaction();
+}
+
+/* Acknowledgement
+Figured out SPI_REGS assignment from https://github.com/hideakitai/TsyDMASPI
+*/
