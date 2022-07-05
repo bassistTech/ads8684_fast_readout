@@ -1,8 +1,12 @@
 # ADS8684: A fast precision ADC for the Teensy 4 microcontroller board
 
+# Not Ready for Use
+
 Francis Deck
 
-Here's a circuit and firmware for operating an ADS8684 16-bit ADC chip at a 500 kHz sampling rate, on a Teensy 4.0 board. The circuit is easy to build by hand on a breakout board, yet meets the datasheet specs for the ADC chip.
+Here's a circuit, firmware, and Python library, for operating an ADS8684 16-bit ADC chip at a 500 kHz sampling rate, on a Teensy 4.0 board. The circuit is easy to build by hand on a breakout board, yet meets the datasheet specs for the ADC chip.
+
+I'm going to use this circuit to build a "scope" capable of analyzing audio circuits, with bandwidth, dynamic range, and data storage, to spare. I already have a good enough conventional scope for high speed stuff.
 
 ## About the ADS8684 ADC chip
 
@@ -25,7 +29,15 @@ I also have a "let's get coding" attitude. Building the circuit by hand was the 
 
 ## Schematic diagram
 
+The circuit is so simple that it doesn't need much of a schematic, especially when accompanied by the picture. I've shown a bottom view because my wiring is on the bottom of the breakout board. All of the digital signals are wired to pins on the Teensy 4 board. Both +3.3 V and +5 V power supplies are taken from the Teensy as well. We really shouldn't trust USB for clean power, but we'll see how well it actually performs.
+
+![Schematic diagram](img/schematic.png)
+
 ## The first prototype
+
+Here's the wiring job. It's that simple. I stuck a piece of copper foil tape to the bottom of the breakout board, though you could also use bare wire. The colored wires are from a piece of rainbow ribbon cable, my favorite source of hookup wire. All of them connect to Teensy pins.
+
+![Prototype](img/wiring.png)
 
 ## Software development
 
@@ -35,16 +47,17 @@ Turns out there's already a library!
 	
 It doesn't handle high speed continuous data collection, but contains everything needed to set up the chip. So I use the ADS8688 library to configure all of the operating parameters of the chip, then I transfer control of the chip to an interrupt service routine that interacts directly with the Teensy 4.0 SPI hardware registers. The result is that my code is actually quite small.
 
+You can use the example programs in the ADS8688a library to test your circuit before trying my firmware.
+
+TODO: Remove the reset wiring
+
 ## Gearing up for fast data collection
 
 Here's the math: The ADS8688 has a maximum SPI clock speed of 17 MHz, and a maximum sampling rate of 500 kHz. The entire SPI transaction is 32 bits long, which takes 1882 ns, but the entire time available to read the ADC at a sampling rate of 500 kHz is 2000 ns. This leaves precious little time, about 120 ns, for anything to happen in between samples.
 
-The standard SPI transaction is "blocking," meaning that your program waits for the transaction to finish before proceeding. Instead, I've broken up the transaction into separate parts for writing and reading data. This allows me to perform a "read then write" operation, with no waiting. My program can do other things while the SPI hardware performs the transaction.
+The transaction is performed inside an interrupt service routine (ISR), triggered by an interval timer. The standard SPI transaction is "blocking," meaning that your program waits for the transaction to finish before proceeding. Thus 1882 out of 2000 ns is spent waiting. That's 94% of processing time, violating a rule that interrupts should consume minimal time.
 
-The transaction is performed inside an interrupt service routine (ISR), controlled by an interval timer, that can run at the maximum sampling rate of 500 kHz. The ISR is broken into two parts:
-
-1. The "read then write" operation of the SPI interface.
-2. Storing the conversion result in an array, and performing some basic statistics.
+Instead, I've broken up the transaction into separate parts for writing and reading data. This allows me to perform a "read then write" operation, with no waiting. My program can do other things while the SPI hardware performs the transaction. 
 
 There are still some minor issues. The 17 MHz clock frequency in the SPI settings is not quite enough to finish each transaction before the next interrupt starts, wreaking havoc. (This is noticeable because a grounded input produces seemingly random garbage). My scope isn't quite good enough to tell if it's exactly 17 MHz, but it seems a bit higher, so I raised the frequency in my program to 18 MHz and everything worked fine. In any event, the clock speed is approximate because it's based on a small integer divisor.
 
@@ -64,7 +77,7 @@ You can have multiple key-value pairs in one string, such as
 	
 Every key needs a value, so keys that represent commands are given a value that's ignored.
 
-## API command list, 
+## API command list
 
 	{"fsamp": f} sets the sampling frequency in Hz
 	
@@ -78,5 +91,18 @@ Every key needs a value, so keys that represent commands are given a value that'
 	
 	{"dump": 1} prints a text header, followed by the contents of the array in binary format
 	
-	{"chans": list} sets the list of input channels that are turned on, such as [0, 1]
+	{"chans": list} sets the list of input channels that are turned on, such as [0, 1].
+	
+	{"ranges": list} sets the input ranges for the turned-on channels, such as [0, 2].
+	
+		0: +/- 10.24V (default on power-up)
+		1: +/-  5.12V
+		2: +/-  2.56V
+		3: +/-  1.28V
+		4: +/-  0.64V
+		5: 0 to 10.24V
+		6: 0 to 5.12V
+		7: 0 to 2.56V
+		8: 0 to 1.28V
+	
 	

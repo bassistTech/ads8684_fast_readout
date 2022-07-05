@@ -51,8 +51,6 @@ void setup() {
   digitalWrite(SCOPE_PIN, LOW);
   digitalWrite(RST_PIN, LOW);
   digitalWrite(RST_PIN, HIGH);
-  adsGlobals.mans[0] = chanReg(0) << 24;
-  adsGlobals.mans[1] = 0;
   bank.setGlobalRange(R0);              // set range for all channels
   bank.setChannelPowerDown(0);
   Serial.begin(115200);                 // start serial communication
@@ -65,7 +63,7 @@ void setup() {
 struct {
   float fsamp = 500e3; // sampling rate in Hz
   float npts = 10; // number of data points to read
-  int chans[9];
+  int chans[9] = {1, 0, 0, 0, 0, 0, 0, 0, 0};
 } globals;
 
 void printStatus(){
@@ -82,7 +80,7 @@ void printStatus(){
   txDoc["average"] = average;
   txDoc["stdev"] = stdev;
   for (i=0; i<8; i++) {
-    txDoc["chans"][i] = adsGlobals.mans[i] >> 24;
+    txDoc["chans"][i] = globals.chans[i];
   }
   serializeJson(txDoc, Serial);
   Serial.write('\n');
@@ -122,18 +120,17 @@ void printBinary(){
 
 void chansCmd(){
   unsigned int i;
+  for (i=0; i<9; i++) globals.chans[i] = 0;
   for (i=0; i<rxDoc["chans"].size(); i++) {
-    adsGlobals.mans[i] = chanReg(rxDoc["chans"][i]) << 24;
-    adsGlobals.mans[i+1] = 0;
     globals.chans[i] = rxDoc["chans"][i];
-    globals.chans[i+1] = 0;
   }
 }
 
 void readArrayCmd(){
   int i;
-  for (i=0; i<9; i++) {
+  for (i=0; i<8; i++) {
     adsGlobals.mans[i] = chanReg(globals.chans[i]) << 24;
+    adsGlobals.mans[i+1] = 0;
   }
   readArray(globals.npts, globals.fsamp);
 }

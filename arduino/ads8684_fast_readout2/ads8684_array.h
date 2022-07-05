@@ -20,16 +20,17 @@ the SPI clock speed to 19 MHz, which seems pretty darn close to an actual rate o
 */
 
 #ifndef ARDUINO_TEENSY40
-#warning This code is only known to work on Teensy 4.0
+#warning This code is only tested on Teensy 4.0
 #endif
 
 #include <ADS8688.h>
+#include "spi_regs.h"
 #define RST_PIN 9 // reset pin
 #define CS_PIN 10 // chip select pin
 #define NUM_CHANS 4 // number of channels (using ADS8684 here)
 #define SCOPE_PIN 6 // used for program timing using a scope
 #define SPI_CLOCK 18000000 // needed to run a bit higher than 17 MHz
-#define SPI_REGS IMXRT_LPSPI4_S // Teensy 4 SPI register block
+
 
 ADS8688 bank = ADS8688(CS_PIN);
 IntervalTimer adcTimer;
@@ -38,19 +39,19 @@ IntervalTimer adcTimer;
 
 // ISR is a state machine. These are the states:
 
-typedef enum {adcIdle, // typically used for Done with running
-              adcStart, // start, ignore the first few readings
-              adcRun, // running, collecting the data array
-              adcDone}
-      adcStates;
+typedef enum {
+  adcIdle, // typically used for Done with running
+  adcStart, // start, ignore the first few readings
+  adcRun // running, collecting the data array
+} adcStates;
 
 struct {
   volatile adcStates adcState = adcIdle; // machine state within ISR
   volatile int npts = 0; // number of data points collected
   volatile int lastpt = 0; // last point to collect
   volatile unsigned short adcData[maxpts]; // data buffer for ADC results
-  volatile uint32_t mans[9];
-  volatile int nextman = 0;
+  volatile uint32_t mans[9]; // list of manual channel selections, terminated with 0
+  volatile int nextman = 0; // manual selection for the next ISR cycle
   volatile double adcSum = 0; // sum for computing average
   volatile double adcSum2 = 0; // sum of squares for computing standard deviation
 } adsGlobals;
@@ -82,18 +83,18 @@ void adcISR(){
   int result = SPI_REGS.RDR;
   digitalWriteFast(CS_PIN, LOW); // start next conversion
   SPI_REGS.TDR = adsGlobals.mans[adsGlobals.nextman];  
-  //digitalWrite(SCOPE_PIN, LOW);
-  
-  // The SPI hardware is now performing the conversion and storing the result. Meanwhile,
+  //digitalWrite(SCOPE_PIN, LOW); storing the result. Meanwhile,
   // we can take care of the state machine
   
   if (adsGlobals.adcState == adcStart) { // padding and synchronization of array
     adsGlobals.nextman = 0;
-    adsGlobals.npts = -2;
+    adsGlobals.npts = -2; // first two readings of run state are already in queue
     adsGlobals.adcState = adcRun;
   }
   else if (adsGlobals.adcState == adcRun) { // Filling the data array with readings
     if (adsGlobals.npts >= 0) {
+  
+  // The SPI hardware is now performing the conversion and
       adsGlobals.adcData[adsGlobals.npts] = result;
       adsGlobals.adcSum += result;
       adsGlobals.adcSum2 += result*result;
@@ -105,14 +106,11 @@ void adcISR(){
     adsGlobals.nextman++;
     if (adsGlobals.mans[adsGlobals.nextman] == 0) adsGlobals.nextman = 0;
   }
-  else if (adsGlobals.adcState == adcDone) {
-    adsGlobals.adcState = adcIdle;
-  }
 }
 
 void readArray(int len, float fs){
   SPI.beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE1));
-  SPI_REGS.TCR = (SPI_REGS.TCR & 0xfffff000) | LPSPI_TCR_FRAMESZ(31);
+  SPI_REGS.TCR = (SPI_REGS.TCR & 0xfffff000) | LPSPI_TCR_FRAMESZ(31); // switch to 32 bit mode
   adsGlobals.npts = 0;
   adsGlobals.lastpt = len;
   adsGlobals.adcSum = 0;
@@ -126,7 +124,3 @@ void readArray(int len, float fs){
   adcTimer.end();
   SPI.endTransaction();
 }
-
-/* Acknowledgement
-Figured out SPI_REGS assignment from https://github.com/hideakitai/TsyDMASPI
-*/
