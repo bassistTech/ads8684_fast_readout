@@ -119,4 +119,4 @@ You can see how this is programmed, in the Python code.
 
 ## The Python side of things
 
-The **python** folder contains a Python package for talking to the board, and some test code.
+The **python** folder contains a Python package for talking to the board, and some test code. By the time I started writing the Python code, I had already done some testing by entering JSON strings into a terminal. But by the time I've got the Python running, I rarely return to the terminal, and I test updates to the firmware with Python programs or a Jupyter notebook.

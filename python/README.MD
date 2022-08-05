@@ -2,13 +2,13 @@
 
 ## Installation
 
-	I prefer "develop" mode because I'm typically editing my stuff. So my preferred command for my own libraries is:
+I prefer "develop" mode because I'm typically editing my stuff. So my preferred command for my own libraries is:
 	
-		python setup.py develop
+	python setup.py develop
 	
-	On Linux, probably:
+On Linux, probably:
 	
-		sudo python3 setup.py develop
+	sudo python3 setup.py develop
 	
 ## Reference
 
