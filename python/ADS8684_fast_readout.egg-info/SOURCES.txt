@@ -1,0 +1,5 @@
+setup.py
+ADS8684_fast_readout.egg-info/PKG-INFO
+ADS8684_fast_readout.egg-info/SOURCES.txt
+ADS8684_fast_readout.egg-info/dependency_links.txt
+ADS8684_fast_readout.egg-info/top_level.txt

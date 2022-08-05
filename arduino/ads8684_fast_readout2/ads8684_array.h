@@ -93,8 +93,6 @@ void adcISR(){
   }
   else if (adsGlobals.adcState == adcRun) { // Filling the data array with readings
     if (adsGlobals.npts >= 0) {
-  
-  // The SPI hardware is now performing the conversion and
       adsGlobals.adcData[adsGlobals.npts] = result;
       adsGlobals.adcSum += result;
       adsGlobals.adcSum2 += result*result;

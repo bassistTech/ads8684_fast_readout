@@ -60,10 +60,14 @@ void setup() {
 
 // These are all of the globals used outside of the ISR. The ISR has its own globals
 
+const int n2range[] = {R0, R1, R2, R3, R4, R5, R6, R7, R8};
+
 struct {
   float fsamp = 500e3; // sampling rate in Hz
   float npts = 10; // number of data points to read
   int chans[9] = {1, 0, 0, 0, 0, 0, 0, 0, 0};
+  int nChans = 1;
+  int ranges[9] = {0, 0, 0, 0, 0, 0, 0, 0 ,0};
 } globals;
 
 void printStatus(){
@@ -79,8 +83,11 @@ void printStatus(){
   double stdev = sqrt(adsGlobals.adcSum2/globals.npts - average*average);
   txDoc["average"] = average;
   txDoc["stdev"] = stdev;
-  for (i=0; i<8; i++) {
+  for (i=0; i<globals.nChans; i++) {
     txDoc["chans"][i] = globals.chans[i];
+  }
+  for (i=0; i<globals.nChans; i++) {
+    txDoc["ranges"][i] = globals.ranges[i];
   }
   serializeJson(txDoc, Serial);
   Serial.write('\n');
@@ -105,33 +112,41 @@ void printBinary(){
   Prints a JSON header, followed by the contents of the data array in raw binary format
   */
   // Transmit an array of float32_t
-  int i;
+  int nbytes = sizeof(adsGlobals.adcData[0])*adsGlobals.npts;
   txDoc.clear();
-  txDoc["bytes"] = sizeof(adsGlobals.adcData[0])*adsGlobals.npts;
+  txDoc["bytes"] = nbytes;
   txDoc["type"] = "uint16";
   serializeJson(txDoc, Serial);
   Serial.write('\n');
-  for (i=0; i<adsGlobals.npts; i++) {
-    Serial.write((char*)&adsGlobals.adcData[i], sizeof(adsGlobals.adcData[0]));
-    if (i % 32 == 1) Serial.flush();
-  }
-  Serial.flush();
+  Serial.write((char*)&adsGlobals.adcData, nbytes);
+  // Serial.flush();
 }
 
+void chansMans(){
+  unsigned int i;
+  for (i=0; i<9; i++) adsGlobals.mans[i] = 0;
+  for (i=0; i<globals.nChans; i++) {
+    adsGlobals.mans[i] = chanReg(globals.chans[i]) << 24;
+    bank.setChannelRange(globals.chans[i], n2range[globals.ranges[i]]);
+  }
+}
 void chansCmd(){
   unsigned int i;
-  for (i=0; i<9; i++) globals.chans[i] = 0;
+  globals.nChans = rxDoc["chans"].size();
   for (i=0; i<rxDoc["chans"].size(); i++) {
     globals.chans[i] = rxDoc["chans"][i];
   }
 }
 
-void readArrayCmd(){
-  int i;
-  for (i=0; i<8; i++) {
-    adsGlobals.mans[i] = chanReg(globals.chans[i]) << 24;
-    adsGlobals.mans[i+1] = 0;
+void rangesCmd(){
+  unsigned int i;
+  for (i=0; i<rxDoc["ranges"].size(); i++) {
+    globals.ranges[i] = rxDoc["ranges"][i];
   }
+}
+
+void readArrayCmd(){
+  chansMans();
   readArray(globals.npts, globals.fsamp);
 }
 
@@ -156,15 +171,21 @@ void loop() {
       chansCmd();
       needPrint = 1;
     }
+    if (rxDoc.containsKey("ranges")) {
+      rangesCmd();
+      needPrint = 1;
+    }
     if (rxDoc.containsKey("read")) {
       readArrayCmd();
       needPrint = 1;
     }
     if (rxDoc.containsKey("print")) {
       printText();
+      needPrint = 1;
     }
     if (rxDoc.containsKey("dump")) {
       printBinary();
+      needPrint = 0;
     }
   }
   if (needPrint) {

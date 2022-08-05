@@ -1,0 +1,1 @@
+from .ads8684_fast_readout import Ads8684_fast_readout
