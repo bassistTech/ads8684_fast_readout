@@ -17,10 +17,9 @@ class Ads8684_fast_readout():
         '''
         Scale and offset values assuming internal voltage reference
         '''
-        self.scales = np.array([20.48, 10.24, 5.12, 2.56, 1.28,
-                                10.24, 5.12, 2.56, 1.28])/65536
-        self.offsets = np.array([-10.24, -5.12, -2.56, -1.28, -0.64,
-                                 0, 0, 0, 0])
+        vref = 4.096
+        self.scales = np.array([5*vref, 2.5*vref, 1.25*vref, 2.5*vref, 1.25*vref])/65536
+        self.offsets = np.array([-2.5*vref, -1.25*vref, -0.625*vref, 0, 0])
         
     def close(self):
         self.ser.close()
@@ -82,10 +81,11 @@ class Ads8684_fast_readout():
         result['data'] = self.__transact(command)['data']
         return result
         
-    def readBinaryMode(self, npts):
+    def readBinaryMode(self, npts, volts = True):
         '''
         Read array, receive data in binary mode
         npts = number of points to read
+        volts = True if output should be scaled in Volts
         returns: Array, broken into channels, scaled in Volts
         '''
         status = self.status()
@@ -112,7 +112,11 @@ class Ads8684_fast_readout():
             print('Number of points must be divisible by channels') 
         scales = np.array([self.scales[i] for i in status['ranges']])
         offsets = np.array([self.offsets[i] for i in status['ranges']])
-        ya = y.reshape((len(y)//nchans, nchans)).transpose()*scales[:, np.newaxis] + offsets[:, np.newaxis]
+        if volts:
+            ya = y.reshape((len(y)//nchans, nchans)).transpose()*scales[:, np.newaxis] + offsets[:, np.newaxis]
+        else:
+            ya = y.reshape((len(y)//nchans, nchans)).transpose()
         return ya
         
-        
+    def reset(self):
+        return self.__transact({'reset': 1})

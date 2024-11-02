@@ -37,6 +37,8 @@ IntervalTimer adcTimer;
 
 #define maxpts 32768 // max data points during "read" operation
 
+const uint32_t rangeConsts[] = {0, 1, 2, 5, 6};
+
 // ISR is a state machine. These are the states:
 
 typedef enum {
@@ -49,7 +51,7 @@ struct {
   volatile adcStates adcState = adcIdle; // machine state within ISR
   volatile int npts = 0; // number of data points collected
   volatile int lastpt = 0; // last point to collect
-  volatile unsigned short adcData[maxpts]; // data buffer for ADC results
+  volatile uint16_t adcData[maxpts]; // data buffer for ADC results
   volatile uint32_t mans[9]; // list of manual channel selections, terminated with 0
   volatile int nextman = 0; // manual selection for the next ISR cycle
   volatile double adcSum = 0; // sum for computing average
@@ -80,7 +82,7 @@ void adcISR(){
   
   //digitalWriteFast(SCOPE_PIN, HIGH); // used for monitoring conversion timing on a scope
   digitalWriteFast(CS_PIN, HIGH); // end previous conversion
-  int result = SPI_REGS.RDR;
+  uint16_t result = SPI_REGS.RDR;
   digitalWriteFast(CS_PIN, LOW); // start next conversion
   SPI_REGS.TDR = adsGlobals.mans[adsGlobals.nextman];  
   //digitalWrite(SCOPE_PIN, LOW); storing the result. Meanwhile,
@@ -108,6 +110,7 @@ void adcISR(){
 
 void readArray(int len, float fs){
   SPI.beginTransaction(SPISettings(SPI_CLOCK, MSBFIRST, SPI_MODE1));
+  uint32_t old = SPI_REGS.TCR;
   SPI_REGS.TCR = (SPI_REGS.TCR & 0xfffff000) | LPSPI_TCR_FRAMESZ(31); // switch to 32 bit mode
   adsGlobals.npts = 0;
   adsGlobals.lastpt = len;
@@ -120,5 +123,8 @@ void readArray(int len, float fs){
   adsGlobals.adcState = adcStart;
   while (adsGlobals.adcState != adcIdle);
   adcTimer.end();
+  while ((SPI_REGS.RSR & LPSPI_RSR_RXEMPTY))
+  SPI_REGS.TCR = old;
+  digitalWrite(CS_PIN, HIGH);
   SPI.endTransaction();
 }

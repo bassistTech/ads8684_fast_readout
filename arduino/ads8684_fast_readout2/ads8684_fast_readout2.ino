@@ -60,8 +60,6 @@ void setup() {
 
 // These are all of the globals used outside of the ISR. The ISR has its own globals
 
-const int n2range[] = {R0, R1, R2, R3, R4, R5, R6, R7, R8};
-
 struct {
   float fsamp = 500e3; // sampling rate in Hz
   float npts = 10; // number of data points to read
@@ -88,6 +86,9 @@ void printStatus(){
   }
   for (i=0; i<globals.nChans; i++) {
     txDoc["ranges"][i] = globals.ranges[i];
+  }
+  for (i=0; i<globals.nChans; i++) {
+    txDoc["getRanges"][i] = bank.getChannelRange(globals.chans[i]);
   }
   serializeJson(txDoc, Serial);
   Serial.write('\n');
@@ -127,7 +128,7 @@ void chansMans(){
   for (i=0; i<9; i++) adsGlobals.mans[i] = 0;
   for (i=0; i<globals.nChans; i++) {
     adsGlobals.mans[i] = chanReg(globals.chans[i]) << 24;
-    bank.setChannelRange(globals.chans[i], n2range[globals.ranges[i]]);
+    bank.setChannelRange(globals.chans[i], rangeConsts[globals.ranges[i]]);
   }
 }
 void chansCmd(){
@@ -148,6 +149,11 @@ void rangesCmd(){
 void readArrayCmd(){
   chansMans();
   readArray(globals.npts, globals.fsamp);
+}
+
+void resetCmd(){
+  digitalWrite(RST_PIN, LOW);
+  digitalWrite(RST_PIN, HIGH);
 }
 
 void loop() {
@@ -186,6 +192,10 @@ void loop() {
     if (rxDoc.containsKey("dump")) {
       printBinary();
       needPrint = 0;
+    }
+    if (rxDoc.containsKey("reset")) {
+      resetCmd();
+      needPrint = 1;
     }
   }
   if (needPrint) {
